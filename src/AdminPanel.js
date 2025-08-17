@@ -574,11 +574,11 @@ const AuthForm = ({ onAuth }) => {
             </button>
           </div>
 
-          // <div className="mt-6 p-4 bg-gray-50 rounded-lg text-xs text-gray-600">
-          //   <p className="font-medium mb-2">Test Accounts:</p>
-          //   <p>Admin: admin@test.com / admin123</p>
-          //   <p>Manager: manager@test.com / manager123</p>
-          // </div>
+          {/* <div className="mt-6 p-4 bg-gray-50 rounded-lg text-xs text-gray-600">
+            <p className="font-medium mb-2">Test Accounts:</p>
+            <p>Admin: admin@test.com / admin123</p>
+            <p>Manager: manager@test.com / manager123</p>
+          </div> */}
         </div>
       </div>
     );
