@@ -1,0 +1,1391 @@
+import React, { useState, useEffect } from 'react';
+import { User, Settings, LogOut, Shield, Smartphone, Eye, Edit3, Unlink, Plus, Search, Filter, MoreHorizontal, Trash2, Power, PowerOff, Map, X, Copy, Check } from 'lucide-react';
+
+// API Configuration
+const API_CONFIG = {
+  BASE_URL: 'https://6puu14cjdi.execute-api.ap-northeast-2.amazonaws.com/dev',
+  SOUND_API_URL: 'https://frontend-api-prod.wethmfactory.com',
+  COGNITO_CONFIG: {
+    USER_POOL_ID: 'ap-northeast-2_Mh01NUKlM',
+    CLIENT_ID: '3sqbfermevq30ntj0empplkd6a',
+    REGION: 'ap-northeast-2'
+  }
+};
+
+// In-memory token storage
+let authToken = null;
+let currentUserData = null;
+
+// API Services
+const apiService = {
+  async request(endpoint, options = {}) {
+    const url = `${API_CONFIG.BASE_URL}${endpoint}`;
+    const config = {
+      mode: 'cors',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        ...(authToken && { 'Authorization': `Bearer ${authToken}` }),
+        ...options.headers
+      },
+      ...options
+    };
+
+    if (config.body && typeof config.body === 'object') {
+      config.body = JSON.stringify(config.body);
+    }
+
+    try {
+      console.log('Making API request to:', url, 'with config:', config);
+      const response = await fetch(url, config);
+      
+      console.log('API response status:', response.status);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('API error response:', errorData);
+        throw {
+          status: response.status,
+          message: errorData.message || `HTTP ${response.status}`,
+          response: { status: response.status, data: errorData }
+        };
+      }
+
+      const data = await response.json();
+      console.log('API response data:', data);
+      return data;
+    } catch (error) {
+      console.error('API request failed:', error);
+      if (error.status) {
+        throw error;
+      }
+      throw {
+        message: 'Network error. Please check your connection.',
+        code: 'NETWORK_ERROR'
+      };
+    }
+  },
+
+  isTokenValid() {
+    if (!currentUserData || !currentUserData.tokenInfo) {
+      return false;
+    }
+    
+    const { expiryDate } = currentUserData.tokenInfo;
+    const now = new Date();
+    
+    return expiryDate && new Date(expiryDate) > new Date(now.getTime() + 5 * 60 * 1000);
+  },
+
+  async refreshAccessToken() {
+    if (!currentUserData || !currentUserData.tokenInfo || !currentUserData.tokenInfo.refreshToken) {
+      throw new Error('No refresh token available');
+    }
+
+    try {
+      const response = await this.request('/auth/refresh', {
+        method: 'POST',
+        body: { 
+          refreshToken: currentUserData.tokenInfo.refreshToken 
+        }
+      });
+
+      if (response.data && response.data.accessToken) {
+        authToken = response.data.accessToken;
+        currentUserData.tokenInfo = {
+          ...currentUserData.tokenInfo,
+          accessToken: response.data.accessToken,
+          expiryDate: new Date(response.data.expiryDate)
+        };
+        
+        console.log('Token refreshed successfully');
+        return currentUserData;
+      }
+      
+      throw new Error('Invalid refresh response');
+    } catch (error) {
+      console.error('Token refresh failed:', error);
+      authToken = null;
+      currentUserData = null;
+      throw error;
+    }
+  },
+
+  async ensureAuthenticated() {
+    if (!currentUserData) {
+      throw { code: 'NotAuthenticated', message: 'No authenticated user' };
+    }
+
+    if (!this.isTokenValid()) {
+      console.log('Token expired, attempting to refresh...');
+      try {
+        await this.refreshAccessToken();
+      } catch (error) {
+        console.error('Failed to refresh token:', error);
+        throw { code: 'TokenExpired', message: 'Session expired. Please sign in again.' };
+      }
+    }
+
+    return currentUserData;
+  },
+
+  // Get user details
+  async getUserById(userId) {
+    console.log('Fetching user details for:', userId);
+    await this.ensureAuthenticated();
+    return await this.request(`/user/${userId}`);
+  },
+
+  async signIn(email, password) {
+    try {
+      console.log('Attempting to sign in with:', email);
+      
+      const response = await this.request('/auth/login', {
+        method: 'POST',
+        body: { email, password }
+      });
+      
+      console.log('Auth response:', response);
+      
+      if (response.data && response.data.accessToken) {
+        const { accessToken, refreshToken, username, expiryDate } = response.data;
+        
+        // Set token for subsequent requests
+        authToken = accessToken;
+        
+        const tokenInfo = {
+          accessToken,
+          refreshToken,
+          username,
+          expiryDate: new Date(expiryDate)
+        };
+        
+        try {
+          // Fetch full user details to get isAdmin flag
+          console.log('Fetching user details for username:', username);
+          const userDetailsResponse = await this.getUserById(username);
+          console.log('User details response:', userDetailsResponse);
+          
+          // Extract user data from response
+          const userData = userDetailsResponse.data || userDetailsResponse;
+          
+          currentUserData = {
+            id: username,
+            email: email,
+            name: userData.name || email.split('@')[0],
+            role: userData.isAdmin ? 'admin' : 'manager',
+            isAdmin: userData.isAdmin || false,
+            username: username,
+            tokenInfo: tokenInfo,
+            ...userData // Include any other user fields
+          };
+          
+        } catch (userError) {
+          console.warn('Failed to fetch user details, using basic auth data:', userError);
+          // Fallback if user details fetch fails
+          currentUserData = {
+            id: username,
+            email: email,
+            name: email.split('@')[0],
+            role: 'user',
+            isAdmin: false, // Default fallback
+            username: username,
+            tokenInfo: tokenInfo
+          };
+        }
+        
+        console.log('Authentication successful:', currentUserData);
+        return currentUserData;
+        
+      } else if (response.accessToken) {
+        // Handle case where data is in root of response
+        authToken = response.accessToken;
+        
+        try {
+          const userDetailsResponse = await this.getUserById(response.username);
+          const userData = userDetailsResponse.data || userDetailsResponse;
+          
+          currentUserData = {
+            id: response.username,
+            email: email,
+            name: userData.name || email.split('@')[0],
+            role: userData.isAdmin ? 'admin' : 'manager',
+            isAdmin: userData.isAdmin,
+            username: response.username,
+            tokenInfo: response,
+            ...userData
+          };
+          
+        } catch (userError) {
+          console.warn('Failed to fetch user details, using basic auth data:', userError);
+          currentUserData = {
+            id: response.username,
+            email: email,
+            name: email.split('@')[0],
+            role: 'user',
+            isAdmin: false,
+            username: response.username,
+            tokenInfo: response
+          };
+        }
+        
+        return currentUserData;
+      } else {
+        throw new Error('Invalid response format from authentication service');
+      }
+      
+    } catch (error) {
+      console.error('Authentication failed:', error);
+      
+      if (error.status === 401) {
+        throw { code: 'NotAuthorizedException', message: 'Invalid credentials or token expired.' };
+      }
+      
+      // Demo fallbacks (remove in production)
+      if (email === 'admin@test.com' && password === 'admin123') {
+        const mockUser = { 
+          id: 1, 
+          email, 
+          name: 'System Admin', 
+          role: 'admin',
+          isAdmin: false
+        };
+        authToken = 'mock-jwt-token';
+        currentUserData = mockUser;
+        return mockUser;
+      } else if (email === 'manager@test.com' && password === 'manager123') {
+        const mockUser = { 
+          id: 2, 
+          email, 
+          name: 'Manager User', 
+          role: 'manager',
+          isAdmin: true
+        };
+        authToken = 'mock-jwt-token';
+        currentUserData = mockUser;
+        return mockUser;
+      }
+      
+      throw { code: 'NotAuthorizedException', message: 'Incorrect email or password.' };
+    }
+  },
+
+  async signUp(email, password, firstName, lastName, phoneNumber) {
+    try {
+      const response = await this.request('/auth/signup', {
+        method: 'POST',
+        body: { 
+          email, 
+          password, 
+          firstName, 
+          lastName,
+          phoneNumber,
+          isAdmin: false,
+          isCompany: true
+        }
+      });
+      return response;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  async signOut() {
+    try {
+      if (authToken) {
+        await this.request('/auth/signout', {
+          method: 'POST'
+        });
+      }
+    } catch (error) {
+      console.warn('Sign out error:', error);
+    } finally {
+      authToken = null;
+      currentUserData = null;
+    }
+  },
+
+  async getCurrentUser() {
+    try {
+      return await this.ensureAuthenticated();
+    } catch (error) {
+      throw { code: 'NotAuthenticated', message: 'No authenticated user' };
+    }
+  },
+
+  // Users/Companies API
+  async getCompanies() {
+    console.log('Fetching companies from API...');
+    await this.ensureAuthenticated();
+    return await this.request('/company/all');
+  },
+
+  // Devices API  
+  async getDevicesForCompany(companyId) {
+    console.log('Fetching devices for company:', companyId);
+    await this.ensureAuthenticated();
+    return await this.request(`/company/${companyId}`);
+  }
+};
+
+const handleApiError = (error) => {
+  if (error.response) {
+    const { status, data } = error.response;
+    switch (status) {
+      case 401:
+        return 'Session expired. Please sign in again.';
+      case 403:
+        return 'You do not have permission to perform this action.';
+      case 404:
+        return 'Resource not found.';
+      case 500:
+        return 'Internal server error. Please try again later.';
+      default:
+        return data?.message || 'An error occurred. Please try again.';
+    }
+  } else if (error.code) {
+    switch (error.code) {
+      case 'UserNotConfirmedException':
+        return 'Please confirm your account before signing in.';
+      case 'NotAuthorizedException':
+        return 'Incorrect email or password.';
+      case 'UserNotFoundException':
+        return 'User not found.';
+      case 'TokenExpired':
+      case 'NotAuthenticated':
+        return 'Session expired. Please sign in again.';
+      case 'NETWORK_ERROR':
+        return 'Network error. Please check your connection.';
+      default:
+        return error.message || 'An error occurred. Please try again.';
+    }
+  }
+  return error.message || 'Unknown error occurred.';
+};
+
+// Auth Form Component
+const AuthForm = ({ onAuth }) => {
+  const [isLogin, setIsLogin] = useState(true);
+  const [formData, setFormData] = useState({ 
+    email: '', 
+    password: '', 
+    firstName: '', 
+    lastName: '',
+    phoneNumber: '' 
+  });
+  const [otp, setOtp] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [step, setStep] = useState('phone');
+  const [phoneVerified, setPhoneVerified] = useState(false);
+
+  const validatePhoneNumber = (phone) => {
+    return /^\+82\d{10,11}$/.test(phone);
+  };
+
+  const handleSendOtp = async () => {
+    if (!validatePhoneNumber(formData.phoneNumber)) {
+      setError('Please enter a valid Korean phone number in format +821012341234');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      await apiService.request('/notifications/sms/add', {
+        method: 'POST',
+        body: { phoneNumber: formData.phoneNumber }
+      });
+      setStep('verify');
+    } catch (err) {
+      if (err.code === -33) {
+        alert(err.message || 'Phone number already verified in SMS sandbox.');
+        authToken = null;
+        currentUserData = null;
+        window.location.reload();
+      } else {
+        setError(handleApiError(err));
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!otp || otp.length < 4) {
+      setError('Please enter a valid OTP');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      await apiService.request('/notifications/sms/verify', {
+        method: 'POST',
+        body: { 
+          phoneNumber: formData.phoneNumber,
+          otp: otp
+        }
+      });
+      setPhoneVerified(true);
+      setStep('register');
+    } catch (err) {
+      setError(handleApiError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!formData.email || !formData.password) return;
+    
+    setLoading(true);
+    setError('');
+
+    try {
+      if (isLogin) {
+        const user = await apiService.signIn(formData.email, formData.password);
+        onAuth(user);
+      } else {
+        await apiService.signUp(
+          formData.email, 
+          formData.password, 
+          formData.firstName,
+          formData.lastName,
+          formData.phoneNumber
+        );
+        setError('Please check your email to confirm your account, then sign in.');
+        setIsLogin(true);
+        setStep('phone');
+        setPhoneVerified(false);
+      }
+    } catch (err) {
+      setError(handleApiError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      if (step === 'phone') handleSendOtp();
+      else if (step === 'verify') handleVerifyOtp();
+      else handleSubmit();
+    }
+  };
+
+  // Login form (default view)
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-8">
+        <div className="text-center mb-8">
+          <div className="bg-orange-100 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
+            <Shield size={32} className="text-orange-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Admin Panel</h1>
+          <p className="text-gray-600">
+            {isLogin ? 'Sign in to your account' : 'Create your account'}
+          </p>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg mb-6">
+            {error}
+          </div>
+        )}
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Email
+            </label>
+            <input
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({...formData, email: e.target.value})}
+              onKeyPress={handleKeyPress}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              placeholder="Enter your email"
+              disabled={loading}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Password
+            </label>
+            <input
+              type="password"
+              value={formData.password}
+              onChange={(e) => setFormData({...formData, password: e.target.value})}
+              onKeyPress={handleKeyPress}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              placeholder="Enter your password"
+              disabled={loading}
+            />
+          </div>
+
+          <button
+            onClick={handleSubmit}
+            disabled={loading || !formData.email || !formData.password}
+            className="w-full bg-orange-600 text-white py-3 rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {loading ? 'Signing in...' : 'Sign In'}
+          </button>
+
+          <div className="text-center mt-4">
+            <p className="text-sm text-gray-600">
+              Demo Accounts: admin@test.com / admin123 (Admin) or manager@test.com / manager123 (Manager)
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Device List Modal Component
+const DeviceListModal = ({ isOpen, onClose, devices, companyName }) => {
+  const [copiedDeviceId, setCopiedDeviceId] = useState(null);
+
+  const copyToClipboard = async (deviceId) => {
+    try {
+      await navigator.clipboard.writeText(deviceId);
+      setCopiedDeviceId(deviceId);
+      setTimeout(() => setCopiedDeviceId(null), 2000);
+    } catch (error) {
+      console.error('Failed to copy:', error);
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = deviceId;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopiedDeviceId(deviceId);
+      setTimeout(() => setCopiedDeviceId(null), 2000);
+    }
+  };
+
+  const copyAllDevices = async () => {
+    const allDevices = devices.join('\n');
+    try {
+      await navigator.clipboard.writeText(allDevices);
+      setCopiedDeviceId('all');
+      setTimeout(() => setCopiedDeviceId(null), 2000);
+    } catch (error) {
+      console.error('Failed to copy all:', error);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-96 flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Device List</h3>
+            <p className="text-sm text-gray-600">{companyName}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="space-y-3">
+            {devices.map((deviceId, index) => (
+              <div
+                key={index}
+                className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <div className="flex items-center flex-1 min-w-0">
+                  <Smartphone size={16} className="text-blue-600 mr-3 flex-shrink-0" />
+                  <span className="font-mono text-sm text-gray-900 truncate" title={deviceId}>
+                    {deviceId}
+                  </span>
+                </div>
+                <button
+                  onClick={() => copyToClipboard(deviceId)}
+                  className="ml-2 p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded transition-colors flex-shrink-0"
+                  title="Copy device ID"
+                >
+                  {copiedDeviceId === deviceId ? (
+                    <Check size={16} className="text-green-600" />
+                  ) : (
+                    <Copy size={16} />
+                  )}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-6 border-t border-gray-200 bg-gray-50">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-gray-600">
+              {devices.length} device{devices.length !== 1 ? 's' : ''} total
+            </span>
+            <button
+              onClick={copyAllDevices}
+              className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              {copiedDeviceId === 'all' ? (
+                <>
+                  <Check size={16} />
+                  Copied!
+                </>
+              ) : (
+                <>
+                  <Copy size={16} />
+                  Copy All
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+const DataTable = ({ 
+  columns, 
+  data, 
+  onRowSelect, 
+  onRowAction, 
+  selectedRows = [], 
+  actions = [],
+  searchPlaceholder = "Search...",
+  loading = false
+}) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortColumn, setSortColumn] = useState('');
+  const [sortDirection, setSortDirection] = useState('asc');
+
+  // Handle both direct array and wrapped data response
+  const tableData = Array.isArray(data) ? data : (data?.data || []);
+
+  const filteredData = tableData.filter(item => 
+    Object.values(item).some(value => 
+      String(value).toLowerCase().includes(searchTerm.toLowerCase())
+    )
+  );
+
+  const sortedData = [...filteredData].sort((a, b) => {
+    if (!sortColumn) return 0;
+    const aValue = a[sortColumn];
+    const bValue = b[sortColumn];
+    if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+    if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const handleSort = (column) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 p-8">
+        <div className="flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600"></div>
+          <span className="ml-2 text-gray-600">Loading...</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200">
+      <div className="p-6 border-b border-gray-200">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="relative">
+            <Search size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder={searchPlaceholder}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent w-full sm:w-80"
+            />
+          </div>
+          
+          {actions.length > 0 && (
+            <div className="flex items-center gap-2">
+              {actions.map((action, index) => (
+                <button
+                  key={index}
+                  onClick={action.onClick}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+                    action.variant === 'primary'
+                      ? 'bg-orange-600 text-white hover:bg-orange-700'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <action.icon size={16} />
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead className="bg-gray-50">
+            <tr>
+              {onRowSelect && (
+                <th className="w-12 px-6 py-3">
+                  <input type="checkbox" className="rounded border-gray-300" />
+                </th>
+              )}
+              {columns.map((column) => (
+                <th
+                  key={column.key}
+                  className={`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${
+                    column.sortable ? 'cursor-pointer hover:bg-gray-100' : ''
+                  }`}
+                  onClick={() => column.sortable && handleSort(column.key)}
+                >
+                  <div className="flex items-center gap-1">
+                    {column.label}
+                    {column.sortable && sortColumn === column.key && (
+                      <span className="text-orange-600">
+                        {sortDirection === 'asc' ? '↑' : '↓'}
+                      </span>
+                    )}
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {sortedData.map((row, index) => (
+              <tr
+                key={row.id || index}
+                className="hover:bg-gray-50 cursor-pointer"
+                onClick={() => onRowAction?.(row)}
+              >
+                {onRowSelect && (
+                  <td className="px-6 py-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedRows.includes(row.id)}
+                      onChange={() => onRowSelect(row.id)}
+                      className="rounded border-gray-300"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </td>
+                )}
+                {columns.map((column) => (
+                  <td key={column.key} className="px-6 py-4 whitespace-nowrap">
+                    {column.render ? column.render(row[column.key], row) : row[column.key]}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {sortedData.length === 0 && (
+        <div className="text-center py-12">
+          <p className="text-gray-500">No data found</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Companies Management Component (Admin only)
+const CompaniesManagement = ({ currentUser }) => {
+  const [companies, setCompanies] = useState([]);
+  const [selectedCompanies, setSelectedCompanies] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState('');
+  const [deviceModalOpen, setDeviceModalOpen] = useState(false);
+  const [selectedCompanyDevices, setSelectedCompanyDevices] = useState({ devices: [], name: '' });
+
+  useEffect(() => {
+    loadCompanies();
+  }, []);
+
+  const loadCompanies = async () => {
+    try {
+      setLoading(true);
+      setApiError('');
+      const companiesData = await apiService.getCompanies();
+      setCompanies(companiesData);
+    } catch (error) {
+      const errorMessage = handleApiError(error);
+      setApiError(errorMessage);
+      
+      if (error.code === 'TokenExpired' || error.code === 'NotAuthenticated') {
+        console.log('Token expired, should redirect to login');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const renderCompanyName = (value, row) => {
+    return (
+      <div className="flex items-center">
+        <div className="bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center mr-3">
+          <User size={16} className="text-gray-600" />
+        </div>
+        <div>
+          <div className="font-medium text-gray-900">{value}</div>
+          <div className="text-gray-500 text-xs">ID: {row.cId}</div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderDevices = (value, row) => {
+    const deviceCount = Array.isArray(value) ? value.length : 0;
+    
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setSelectedCompanyDevices({ devices: value || [], name: row.name });
+          setDeviceModalOpen(true);
+        }}
+        className="inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors cursor-pointer"
+      >
+        <Smartphone size={12} className="mr-1" />
+        {deviceCount} device{deviceCount !== 1 ? 's' : ''}
+      </button>
+    );
+  };
+
+  const renderInfo = (value) => {
+    if (!value) return <span className="text-gray-500">No info</span>;
+    
+    return (
+      <div className="max-w-xs">
+        <span className="text-gray-700 text-sm truncate block" title={value}>
+          {value}
+        </span>
+      </div>
+    );
+  };
+
+  const companyColumns = [
+    {
+      key: 'name',
+      label: 'Company Name',
+      sortable: true,
+      render: renderCompanyName
+    },
+    {
+      key: 'devices',
+      label: 'Devices',
+      render: renderDevices
+    },
+    {
+      key: 'created',
+      label: 'Created',
+      sortable: true,
+      render: (value) => <span className="text-gray-600">{formatDate(value)}</span>
+    },
+    {
+      key: 'updated',
+      label: 'Updated',
+      sortable: true,
+      render: (value) => <span className="text-gray-600">{formatDate(value)}</span>
+    },
+    {
+      key: 'info',
+      label: 'Info',
+      render: renderInfo
+    }
+  ];
+
+  const handleCompanyAction = (company) => {
+    console.log('Company action:', company);
+  };
+
+  const companyActions = [
+    {
+      label: 'Add Company',
+      icon: Plus,
+      variant: 'primary',
+      onClick: () => console.log('Add company')
+    }
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Companies</h2>
+          <p className="text-gray-600 mt-1">Manage company accounts and their devices</p>
+        </div>
+      </div>
+
+      {apiError && (
+        <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg">
+          {apiError}
+          <button 
+            onClick={loadCompanies}
+            className="ml-2 underline hover:no-underline"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      <DataTable
+        columns={companyColumns}
+        data={companies}
+        onRowSelect={(id) => {
+          setSelectedCompanies(prev => 
+            prev.includes(id) 
+              ? prev.filter(i => i !== id)
+              : [...prev, id]
+          );
+        }}
+        onRowAction={handleCompanyAction}
+        selectedRows={selectedCompanies}
+        actions={companyActions}
+        searchPlaceholder="Search companies..."
+        loading={loading}
+      />
+
+      {/* Device List Modal */}
+      <DeviceListModal
+        isOpen={deviceModalOpen}
+        onClose={() => setDeviceModalOpen(false)}
+        devices={selectedCompanyDevices.devices}
+        companyName={selectedCompanyDevices.name}
+      />
+    </div>
+  );
+};
+
+// Devices Management Component (Manager only)
+const DevicesManagement = ({ currentUser }) => {
+  const [devices, setDevices] = useState([]);
+  const [selectedDevices, setSelectedDevices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState('');
+
+  useEffect(() => {
+    loadDevices();
+  }, []);
+
+  const loadDevices = async () => {
+    try {
+      setLoading(true);
+      setApiError('');
+      
+      // For manager users, get devices for their company
+      // Assuming the user ID is the company ID for managers
+      const companyId = currentUser.id || currentUser.username;
+      const devicesData = await apiService.getDevicesForCompany(companyId);
+      setDevices(devicesData);
+    } catch (error) {
+      setApiError(handleApiError(error));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const getDeviceIcon = (model) => {
+    if (model?.toLowerCase().includes('psp')) {
+      return <Smartphone size={16} className="text-blue-600" />;
+    }
+    return <Settings size={16} className="text-gray-600" />;
+  };
+
+  const renderDeviceName = (value, row) => {
+    return (
+      <div className="flex items-center">
+        <div className="bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center mr-3">
+          {getDeviceIcon(row.model)}
+        </div>
+        <div>
+          <div className="font-medium text-gray-900">{value}</div>
+          <div className="text-gray-500 text-xs">{row.model || 'Unknown'}</div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderStatus = (value) => {
+    const statusColors = {
+      'active': 'bg-green-100 text-green-800',
+      'expired': 'bg-red-100 text-red-800',
+      'unknown': 'bg-gray-100 text-gray-800'
+    };
+    
+    const statusIcons = {
+      'active': Power,
+      'expired': PowerOff,
+      'unknown': Settings
+    };
+    
+    const IconComponent = statusIcons[value] || Settings;
+    
+    return (
+      <span className={`inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full ${
+        statusColors[value] || 'bg-gray-100 text-gray-800'
+      }`}>
+        <IconComponent size={12} className="mr-1" />
+        {value || 'unknown'}
+      </span>
+    );
+  };
+
+  const renderBattery = (value) => {
+    const batteryLevel = value || 0;
+    const batteryColor = batteryLevel > 50 ? 'text-green-600' : batteryLevel > 20 ? 'text-yellow-600' : 'text-red-600';
+    
+    return (
+      <div className="flex items-center">
+        <div className={`w-8 h-4 border border-gray-300 rounded-sm ${batteryColor}`}>
+          <div 
+            className={`h-full rounded-sm ${batteryLevel > 50 ? 'bg-green-600' : batteryLevel > 20 ? 'bg-yellow-600' : 'bg-red-600'}`}
+            style={{ width: `${batteryLevel}%` }}
+          />
+        </div>
+        <span className={`ml-2 text-xs font-medium ${batteryColor}`}>
+          {batteryLevel}%
+        </span>
+      </div>
+    );
+  };
+
+  const renderLocation = (value) => {
+    if (!value || (value.latitude === 0 && value.longitude === 0)) {
+      return <span className="text-gray-500">No location</span>;
+    }
+    
+    return (
+      <div className="flex items-center">
+        <Map size={12} className="text-blue-600 mr-1" />
+        <span className="text-xs text-gray-600">
+          {value.latitude.toFixed(4)}, {value.longitude.toFixed(4)}
+        </span>
+      </div>
+    );
+  };
+
+  const deviceColumns = [
+    {
+      key: 'dId',
+      label: 'Device',
+      sortable: true,
+      render: renderDeviceName
+    },
+    {
+      key: 'model',
+      label: 'Model',
+      sortable: true,
+      render: (value) => <span className="text-gray-900">{value || 'Unknown'}</span>
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      sortable: true,
+      render: renderStatus
+    },
+    {
+      key: 'battery',
+      label: 'Battery',
+      sortable: true,
+      render: renderBattery
+    },
+    {
+      key: 'location',
+      label: 'Location',
+      render: renderLocation
+    },
+    {
+      key: 'expiryDate',
+      label: 'Expires',
+      sortable: true,
+      render: (value) => <span className="text-gray-600">{formatDate(value)}</span>
+    }
+  ];
+
+  const handleDeviceAction = (device) => {
+    console.log('Device action:', device);
+  };
+
+  const deviceActions = [
+    {
+      label: 'Add Device',
+      icon: Plus,
+      variant: 'primary',
+      onClick: () => console.log('Add device')
+    }
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Devices</h2>
+          <p className="text-gray-600 mt-1">Monitor and manage your company's devices</p>
+        </div>
+      </div>
+
+      {apiError && (
+        <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg">
+          {apiError}
+          <button 
+            onClick={loadDevices}
+            className="ml-2 underline hover:no-underline"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      <DataTable
+        columns={deviceColumns}
+        data={devices}
+        onRowSelect={(id) => {
+          setSelectedDevices(prev => 
+            prev.includes(id) 
+              ? prev.filter(i => i !== id)
+              : [...prev, id]
+          );
+        }}
+        onRowAction={handleDeviceAction}
+        selectedRows={selectedDevices}
+        actions={deviceActions}
+        searchPlaceholder="Search devices..."
+        loading={loading}
+      />
+    </div>
+  );
+};
+
+// Main App Component
+const AdminPanel = () => {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [loading, setLoading] = useState(false);
+
+  // Check authentication on load
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const user = await apiService.getCurrentUser();
+        setCurrentUser(user);
+        // Set default tab based on user type
+        setActiveTab(user.isAdmin ?  'companies' : 'devices');
+      } catch (error) {
+        // User not authenticated
+      }
+    };
+    checkAuth();
+  }, []);
+
+  const handleAuth = (user) => {
+    setCurrentUser(user);
+    // Set default tab based on user type
+        setActiveTab(user.isAdmin ?  'companies' : 'devices');
+  };
+
+  const handleSignOut = async () => {
+    setLoading(true);
+    try {
+      await apiService.signOut();
+      setCurrentUser(null);
+      setActiveTab('dashboard');
+    } catch (error) {
+      console.error('Sign out error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!currentUser) {
+    return <AuthForm onAuth={handleAuth} />;
+  }
+
+  const getTabsForUser = () => {
+    if (currentUser.isAdmin) {
+      // Admin users (isAdmin = true) see Companies tab
+      return [
+        { id: 'companies', label: 'Companies', icon: User }
+      ];
+    } else {
+      // Company users (isAdmin = false) see Devices tab
+      return [
+        { id: 'devices', label: 'Devices', icon: Smartphone }
+      ];
+    }
+  };
+
+  const tabs = getTabsForUser();
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center">
+              <div className="bg-orange-100 rounded-lg w-8 h-8 flex items-center justify-center mr-3">
+                <Shield size={20} className="text-orange-600" />
+              </div>
+              <h1 className="text-xl font-bold text-gray-900">Admin Panel</h1>
+            </div>
+            
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <div className="bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center">
+                  <User size={16} className="text-gray-600" />
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-gray-900">{currentUser.name}</div>
+                  <div className="text-xs text-gray-500 capitalize">{currentUser.role}</div>
+                </div>
+              </div>
+              
+              <button
+                onClick={handleSignOut}
+                disabled={loading}
+                className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                <LogOut size={16} />
+                {loading ? 'Signing out...' : 'Sign out'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Navigation */}
+      {tabs.length > 0 && (
+        <nav className="bg-white border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex space-x-8">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center gap-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                      activeTab === tab.id
+                        ? 'border-orange-500 text-orange-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    <Icon size={16} />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </nav>
+      )}
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Welcome Dashboard */}
+        {activeTab === 'dashboard' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                Welcome, {currentUser.name}!
+              </h2>
+              <p className="text-gray-600 mb-6">
+                You are logged in as a <span className="font-medium capitalize">{currentUser.role}</span>.
+              </p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {currentUser.isAdmin && (
+                  <div className="bg-blue-50 rounded-lg p-4">
+                    <h3 className="font-medium text-blue-900 mb-2">Admin Access</h3>
+                    <p className="text-blue-700 text-sm">
+                      You can manage companies and view all system data.
+                    </p>
+                  </div>
+                )}
+                
+                {!currentUser.isAdmin && (
+                  <div className="bg-green-50 rounded-lg p-4">
+                    <h3 className="font-medium text-green-900 mb-2">Company Access</h3>
+                    <p className="text-green-700 text-sm">
+                      You can manage devices for your company.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Companies Management (Admin only - isAdmin = true) */}
+        {activeTab === 'companies' && currentUser.isAdmin && (
+          <CompaniesManagement currentUser={currentUser} />
+        )}
+
+        {/* Devices Management (Manager/Company users) */}
+        {activeTab === 'devices' && !currentUser.isAdmin && (
+          <DevicesManagement currentUser={currentUser} />
+        )}
+
+        {/* Access Denied */}
+        {((activeTab === 'companies' && !currentUser.isAdmin) ||
+          (activeTab === 'devices' && currentUser.isAdmin)) && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+            <Shield size={48} className="text-red-400 mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-red-900 mb-2">Access Denied</h2>
+            <p className="text-red-700">
+              You don't have permission to access this section.
+            </p>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+};
+
+export default AdminPanel;
