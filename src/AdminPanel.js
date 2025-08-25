@@ -357,6 +357,9 @@ const apiService = {
 const handleApiError = (error) => {
   if (error.response) {
     const { status, data } = error.response;
+
+    console.log('Handling API error response:', status);
+
     switch (status) {
       case 401:
         return 'Session expired. Please sign in again.';
@@ -425,11 +428,29 @@ const AuthForm = ({ onAuth }) => {
       });
       setStep('verify');
     } catch (err) {
-      if (err.code === -33) {
-        alert(err.message || 'Phone number already verified in SMS sandbox.');
-        authToken = null;
-        currentUserData = null;
-        window.location.reload();
+      console.log('SMS error details:', err); // Debug log to see error structure
+      
+      // Check for -33 error code in various possible locations
+      let errorCode = err.code || err.response?.data?.code || err.status;
+      let errorMessage = err.message || err.response?.data?.message;
+      
+      // For 400 errors, try to get more specific error details
+      if (err.status === 400 && err.response?.data) {
+        const responseData = err.response.data;
+        errorMessage = responseData.message || responseData.error || responseData.details || errorMessage;
+        
+        // Also check if the response data itself contains the -33 code
+        if (responseData.code === -33) {
+          errorCode = -33;
+          errorMessage = responseData.message || 'Phone number already verified in SMS sandbox.';
+        }
+      }
+      
+      if (errorCode === -33 || errorMessage?.includes('already verified') || errorMessage?.includes('SMS sandbox')) {
+        // Phone number is already verified, continue to registration step
+        alert('Phone number already verified in SMS sandbox. Proceeding to registration.');
+        setPhoneVerified(true);
+        setStep('register');
       } else {
         setError(handleApiError(err));
       }
