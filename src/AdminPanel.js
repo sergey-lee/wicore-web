@@ -777,6 +777,172 @@ const AuthForm = ({ onAuth }) => {
   );
 };
 
+
+// Add Device Modal Component
+const AddDeviceModal = ({ isOpen, onClose, companyData, onDeviceAdded }) => {
+   const [deviceId, setDeviceId] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  // Reset form when modal opens/closes
+  useEffect(() => {
+    if (isOpen) {
+      setDeviceId('');
+      setError('');
+    }
+  }, [isOpen]);
+
+    const handleSubmit = async () => {
+    if (!deviceId) {
+      setError('Device ID is required');
+      return;
+    }
+
+    if (!companyData || !companyData.cId) {
+      setError('Company ID is missing');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      await apiService.request(`/company/${companyData.cId}/${deviceId}`, {
+        method: 'POST'
+      });
+      
+      // Success - close modal and refresh data
+      onDeviceAdded();
+      onClose();
+    } catch (err) {
+      setError(handleApiError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !loading) {
+      handleSubmit();
+    }
+  };
+
+  if (!isOpen) return null;
+
+    return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Add New Device</h3>
+            <p className="text-sm text-gray-600">{companyData?.name || 'Unknown Company'}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+            disabled={loading}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="p-6">
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg mb-4">
+              {error}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Device ID *
+            </label>
+            <input
+              type="text"
+              value={deviceId}
+              onChange={(e) => setDeviceId(e.target.value)}
+              onKeyPress={handleKeyPress}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              placeholder="Enter device ID"
+              disabled={loading}
+            />
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-6 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={loading || !deviceId}
+            className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          >
+            {loading ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Adding...
+              </>
+            ) : (
+              <>
+                <Plus size={16} />
+                Add Device
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Confirmation Dialog Component
+const ConfirmDialog = ({ isOpen, onClose, onConfirm, title, message, loading }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+        <div className="p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
+          <p className="text-gray-600 mb-6">{message}</p>
+          
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={onClose}
+              disabled={loading}
+              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={loading}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Processing...
+                </>
+              ) : (
+                'Yes, Unpair'
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Device List Modal Component
 const DeviceListModal = ({ isOpen, onClose, devices, companyName }) => {
   const [copiedDeviceId, setCopiedDeviceId] = useState(null);
@@ -943,9 +1109,9 @@ const DataTable = ({
 
   return (
     <div className="bg-white rounded-lg border border-gray-200">
-      <div className="p-6 border-b border-gray-200">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="relative">
+      {/* <div className="p-6 border-b border-gray-200"> */}
+        {/* <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"> */}
+          {/* <div className="relative">
             <Search size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
             <input
               type="text"
@@ -954,9 +1120,9 @@ const DataTable = ({
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent w-full sm:w-80"
             />
-          </div>
+          </div> */}
           
-          {actions.length > 0 && (
+          {/* {actions.length > 0 && (
             <div className="flex items-center gap-2">
               {actions.map((action, index) => (
                 <button
@@ -975,7 +1141,7 @@ const DataTable = ({
             </div>
           )}
         </div>
-      </div>
+      </div> */}
 
       <div className="overflow-x-auto">
         <table className="w-full">
@@ -1052,6 +1218,13 @@ const CompaniesManagement = ({ currentUser }) => {
   const [apiError, setApiError] = useState('');
   const [deviceModalOpen, setDeviceModalOpen] = useState(false);
   const [selectedCompanyDevices, setSelectedCompanyDevices] = useState({ devices: [], name: '' });
+  const [addDeviceModalOpen, setAddDeviceModalOpen] = useState(false);
+  const [selectedCompanyForAddDevice, setSelectedCompanyForAddDevice] = useState(null);
+
+  const handleDeviceAdded = () => {
+  // Refresh companies data to get updated device counts
+  loadCompanies();
+  };
 
   useEffect(() => {
     loadCompanies();
@@ -1100,10 +1273,11 @@ const CompaniesManagement = ({ currentUser }) => {
     );
   };
 
-  const renderDevices = (value, row) => {
-    const deviceCount = Array.isArray(value) ? value.length : 0;
-    
-    return (
+ const renderDevices = (value, row) => {
+  const deviceCount = Array.isArray(value) ? value.length : 0;
+
+  return (
+    <div className="flex gap-2">
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -1115,8 +1289,20 @@ const CompaniesManagement = ({ currentUser }) => {
         <Smartphone size={12} className="mr-1" />
         {deviceCount} device{deviceCount !== 1 ? 's' : ''}
       </button>
-    );
-  };
+
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setSelectedCompanyForAddDevice(row);
+          setAddDeviceModalOpen(true);
+        }}
+        className="inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800 hover:bg-green-200 transition-colors cursor-pointer"
+      >
+        Add New Device
+      </button>
+    </div>
+  );
+};
 
   const renderInfo = (value) => {
     if (!value) return <span className="text-gray-500">No info</span>;
@@ -1219,6 +1405,16 @@ const CompaniesManagement = ({ currentUser }) => {
         devices={selectedCompanyDevices.devices}
         companyName={selectedCompanyDevices.name}
       />
+
+          <AddDeviceModal
+      isOpen={addDeviceModalOpen}
+      onClose={() => {
+        setAddDeviceModalOpen(false);
+        setSelectedCompanyForAddDevice(null);
+      }}
+      companyData={selectedCompanyForAddDevice}
+      onDeviceAdded={handleDeviceAdded}
+    />
     </div>
   );
 };
@@ -1229,6 +1425,9 @@ const DevicesManagement = ({ currentUser }) => {
   const [selectedDevices, setSelectedDevices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState('');
+
+  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, deviceId: null, deviceName: null });
+  const [unpairLoading, setUnpairLoading] = useState(false);
 
   useEffect(() => {
     loadDevices();
@@ -1249,6 +1448,37 @@ const DevicesManagement = ({ currentUser }) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleUnpairDevice = async () => {
+    if (!confirmDialog.deviceId) return;
+
+    setUnpairLoading(true);
+    
+    try {
+      await this.request(`/device/unpair/${confirmDialog.deviceId}`, {
+        method: 'DELETE'
+      });
+      
+      // Refresh devices list
+      await loadDevices();
+      
+      // Close dialog
+      setConfirmDialog({ isOpen: false, deviceId: null, deviceName: null });
+      
+    } catch (error) {
+      setApiError(handleApiError(error));
+    } finally {
+      setUnpairLoading(false);
+    }
+  };
+
+  const openUnpairDialog = (device) => {
+    setConfirmDialog({
+      isOpen: true,
+      deviceId: device.dId,
+      deviceName: device.dId
+    });
   };
 
   const formatDate = (dateString) => {
@@ -1404,6 +1634,22 @@ const DevicesManagement = ({ currentUser }) => {
       key: 'location',
       label: 'Location',
       render: renderLocation
+    },
+      {
+      key: 'actions',
+      label: 'Actions',
+      render: (value, row) => (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            openUnpairDialog(row);
+          }}
+          className="inline-flex items-center px-3 py-1 text-xs font-medium rounded-lg bg-red-100 text-red-800 hover:bg-red-200 transition-colors"
+        >
+          <Unlink size={12} className="mr-1" />
+          Unpair
+        </button>
+      )
     }
   ];
 
@@ -1453,9 +1699,18 @@ const DevicesManagement = ({ currentUser }) => {
         }}
         onRowAction={handleDeviceAction}
         selectedRows={selectedDevices}
-        actions={deviceActions}
+        // actions={deviceActions}
         searchPlaceholder="Search devices..."
         loading={loading}
+      />
+
+          <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog({ isOpen: false, deviceId: null, deviceName: null })}
+        onConfirm={handleUnpairDevice}
+        title="Unpair Device"
+        message={`Are you sure you want to unpair device "${confirmDialog.deviceName}"? This action cannot be undone.`}
+        loading={unpairLoading}
       />
     </div>
   );
