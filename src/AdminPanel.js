@@ -944,36 +944,32 @@ const ConfirmDialog = ({ isOpen, onClose, onConfirm, title, message, loading }) 
 };
 
 // Device List Modal Component
-const DeviceListModal = ({ isOpen, onClose, devices, companyName }) => {
-  const [copiedDeviceId, setCopiedDeviceId] = useState(null);
+const DeviceListModal = ({ isOpen, onClose, devices, companyName, companyData, onDeviceDelete }) => {
+  const [deletingDeviceId, setDeletingDeviceId] = useState(null);
+  const [error, setError] = useState('');
 
-  const copyToClipboard = async (deviceId) => {
-    try {
-      await navigator.clipboard.writeText(deviceId);
-      setCopiedDeviceId(deviceId);
-      setTimeout(() => setCopiedDeviceId(null), 2000);
-    } catch (error) {
-      console.error('Failed to copy:', error);
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea');
-      textArea.value = deviceId;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      setCopiedDeviceId(deviceId);
-      setTimeout(() => setCopiedDeviceId(null), 2000);
+  const handleDeleteDevice = async (deviceId) => {
+    if (!companyData || !companyData.cId) {
+      setError('Company ID is missing');
+      return;
     }
-  };
 
-  const copyAllDevices = async () => {
-    const allDevices = devices.join('\n');
+    setDeletingDeviceId(deviceId);
+    setError('');
+
     try {
-      await navigator.clipboard.writeText(allDevices);
-      setCopiedDeviceId('all');
-      setTimeout(() => setCopiedDeviceId(null), 2000);
-    } catch (error) {
-      console.error('Failed to copy all:', error);
+      await apiService.request(`/company/${companyData.cId}/${deviceId}`, {
+        method: 'DELETE'
+      });
+      
+      // Notify parent component about the deletion
+      onDeviceDeleted();
+      
+    } catch (err) {
+      console.error('Failed to delete device:', err);
+      setError(handleApiError(err));
+    } finally {
+      setDeletingDeviceId(null);
     }
   };
 
@@ -996,6 +992,13 @@ const DeviceListModal = ({ isOpen, onClose, devices, companyName }) => {
           </button>
         </div>
 
+        {/* Error Message */}
+        {error && (
+          <div className="mx-6 mt-4 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
+            {error}
+          </div>
+        )}
+
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
           <div className="space-y-3">
@@ -1011,14 +1014,15 @@ const DeviceListModal = ({ isOpen, onClose, devices, companyName }) => {
                   </span>
                 </div>
                 <button
-                  onClick={() => copyToClipboard(deviceId)}
-                  className="ml-2 p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded transition-colors flex-shrink-0"
-                  title="Copy device ID"
+                  onClick={() => handleDeleteDevice(deviceId)}
+                  disabled={deletingDeviceId === deviceId}
+                  className="ml-2 p-2 text-red-500 hover:text-red-700 hover:bg-red-100 rounded transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Delete device"
                 >
-                  {copiedDeviceId === deviceId ? (
-                    <Check size={16} className="text-green-600" />
+                  {deletingDeviceId === deviceId ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500"></div>
                   ) : (
-                    <Copy size={16} />
+                    <Trash2 size={16} />
                   )}
                 </button>
               </div>
@@ -1033,20 +1037,10 @@ const DeviceListModal = ({ isOpen, onClose, devices, companyName }) => {
               {devices.length} device{devices.length !== 1 ? 's' : ''} total
             </span>
             <button
-              onClick={copyAllDevices}
-              className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+              onClick={onClose}
+              className="flex items-center gap-2 px-3 py-2 bg-gray-600 text-white text-sm rounded-lg hover:bg-gray-700 transition-colors"
             >
-              {copiedDeviceId === 'all' ? (
-                <>
-                  <Check size={16} />
-                  Copied!
-                </>
-              ) : (
-                <>
-                  <Copy size={16} />
-                  Copy All
-                </>
-              )}
+              Close
             </button>
           </div>
         </div>
