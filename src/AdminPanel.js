@@ -355,11 +355,21 @@ const apiService = {
 };
 
 const handleApiError = (error) => {
+  // First check if error has a direct 'error' property from server
+  if (error.error) {
+    return error.error;
+  }
+  
   if (error.response) {
     const { status, data } = error.response;
 
     console.log('Handling API error response:', status);
 
+    // Check for server error message first
+    if (data?.error) {
+      return data.error;
+    }
+    
     switch (status) {
       case 401:
         return 'Session expired. Please sign in again.';
@@ -370,7 +380,7 @@ const handleApiError = (error) => {
       case 500:
         return 'Internal server error. Please try again later.';
       default:
-        return data?.message || 'An error occurred. Please try again.';
+        return data?.message || data?.error || 'An error occurred. Please try again.';
     }
   } else if (error.code) {
     switch (error.code) {
@@ -386,10 +396,10 @@ const handleApiError = (error) => {
       case 'NETWORK_ERROR':
         return 'Network error. Please check your connection.';
       default:
-        return error.message || 'An error occurred. Please try again.';
+        return error.message || error.error || 'An error occurred. Please try again.';
     }
   }
-  return error.message || 'Unknown error occurred.';
+  return error.message || error.error || 'Unknown error occurred.';
 };
 
 // Auth Form Component
