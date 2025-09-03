@@ -1275,7 +1275,11 @@ const CompaniesManagement = ({ currentUser }) => {
       <button
         onClick={(e) => {
           e.stopPropagation();
-          setSelectedCompanyDevices({ devices: value || [], name: row.name });
+          setSelectedCompanyDevices({ 
+            devices: value || [], 
+            name: row.name,
+            companyData: row  // Add this line - pass the full row data
+          });
           setDeviceModalOpen(true);
         }}
         className="inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors cursor-pointer"
