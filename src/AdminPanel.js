@@ -944,7 +944,7 @@ const ConfirmDialog = ({ isOpen, onClose, onConfirm, title, message, loading }) 
 };
 
 // Device List Modal Component
-const DeviceListModal = ({ isOpen, onClose, devices, companyName, companyData, onDeviceDeleted }) => {
+const DeviceListModal = ({ isOpen, onClose, devices, companyName, companyData, onDeviceDeleted, onUpdateDeviceList }) => {
   const [deletingDeviceId, setDeletingDeviceId] = useState(null);
   const [error, setError] = useState('');
 
@@ -963,11 +963,8 @@ const DeviceListModal = ({ isOpen, onClose, devices, companyName, companyData, o
       });
       
       // Update the local devices list in the modal
-      const updatedDevices = devices.filter(device => device !== deviceId);
-      setSelectedCompanyDevices(prev => ({
-      ...prev,
-      devices: updatedDevices
-      }));
+     const updatedDevices = devices.filter(device => device !== deviceId);
+    onUpdateDeviceList(updatedDevices);
       
       // Notify parent component about the deletion
       onDeviceDeleted();
@@ -1428,6 +1425,12 @@ const CompaniesManagement = ({ currentUser }) => {
         companyName={selectedCompanyDevices.name}
         companyData={selectedCompanyDevices.companyData}
         onDeviceDeleted={handleDeviceDeleted}
+        onUpdateDeviceList={(updatedDevices) => 
+    setSelectedCompanyDevices(prev => ({
+      ...prev,
+      devices: updatedDevices
+    }))
+  }
       />
 
           <AddDeviceModal
