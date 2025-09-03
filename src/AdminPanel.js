@@ -1483,7 +1483,7 @@ const DevicesManagement = ({ currentUser }) => {
     setUnpairLoading(true);
     
     try {
-      await this.request(`/device/unpair/${confirmDialog.deviceId}`, {
+      await apiService.request(`/device/unpair/${confirmDialog.deviceId}`, {
         method: 'DELETE'
       });
       
