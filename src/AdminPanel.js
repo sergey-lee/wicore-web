@@ -962,6 +962,13 @@ const DeviceListModal = ({ isOpen, onClose, devices, companyName, companyData, o
         method: 'DELETE'
       });
       
+      // Update the local devices list in the modal
+      const updatedDevices = devices.filter(device => device !== deviceId);
+      setSelectedCompanyDevices(prev => ({
+      ...prev,
+      devices: updatedDevices
+      }));
+      
       // Notify parent component about the deletion
       onDeviceDeleted();
       
@@ -1215,6 +1222,23 @@ const CompaniesManagement = ({ currentUser }) => {
   const [addDeviceModalOpen, setAddDeviceModalOpen] = useState(false);
   const [selectedCompanyForAddDevice, setSelectedCompanyForAddDevice] = useState(null);
 
+  const handleDeviceDeleted = () => {
+  // Refresh companies data to get updated device counts
+  loadCompanies();
+  
+  // Also update the modal's device list if it's currently open
+  if (deviceModalOpen && selectedCompanyDevices.companyData) {
+    // Refresh the specific company's devices
+    const updatedCompany = companies.find(c => c.cId === selectedCompanyDevices.companyData.cId);
+    if (updatedCompany) {
+      setSelectedCompanyDevices(prev => ({
+        ...prev,
+        devices: updatedCompany.devices || []
+      }));
+    }
+  }
+};
+  
   const handleDeviceAdded = () => {
   // Refresh companies data to get updated device counts
   loadCompanies();
@@ -1403,7 +1427,7 @@ const CompaniesManagement = ({ currentUser }) => {
         devices={selectedCompanyDevices.devices}
         companyName={selectedCompanyDevices.name}
         companyData={selectedCompanyDevices.companyData}
-        onDeviceDeleted={handleDeviceAdded}
+        onDeviceDeleted={handleDeviceDeleted}
       />
 
           <AddDeviceModal
