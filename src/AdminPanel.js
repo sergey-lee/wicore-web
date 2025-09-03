@@ -1398,6 +1398,8 @@ const CompaniesManagement = ({ currentUser }) => {
         onClose={() => setDeviceModalOpen(false)}
         devices={selectedCompanyDevices.devices}
         companyName={selectedCompanyDevices.name}
+        companyData={selectedCompanyDevices.companyData}
+        onDeviceDeleted={handleDeviceAdded}
       />
 
           <AddDeviceModal
