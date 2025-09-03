@@ -944,7 +944,7 @@ const ConfirmDialog = ({ isOpen, onClose, onConfirm, title, message, loading }) 
 };
 
 // Device List Modal Component
-const DeviceListModal = ({ isOpen, onClose, devices, companyName, companyData, onDeviceDelete }) => {
+const DeviceListModal = ({ isOpen, onClose, devices, companyName, companyData, onDeviceDeleted }) => {
   const [deletingDeviceId, setDeletingDeviceId] = useState(null);
   const [error, setError] = useState('');
 
