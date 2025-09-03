@@ -1224,7 +1224,7 @@ const CompaniesManagement = ({ currentUser }) => {
   loadCompanies();
   
   // Also update the modal's device list if it's currently open
-  if (deviceModalOpen && selectedCompanyDevices.companyData) {
+  if (deviceModalOpen && selectedCompanyDevices.companyData && Array.isArray(companies)) {
     // Refresh the specific company's devices
     const updatedCompany = companies.find(c => c.cId === selectedCompanyDevices.companyData.cId);
     if (updatedCompany) {
